@@ -1,0 +1,262 @@
+-- file: rbx_universal_delta.lua
+-- Delta-Safe · INF-JUMP + ESP + NOCLIP · موبایل
+-- GUI host: gethui() → CoreGui → PlayerGui  (دلتا CoreGui را بلاک می‌کند)
+
+-- ////////// BOOT GUARD — دلتا گاهی قبل از LocalPlayer اجرا می‌کند
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(0.3)
+
+local Players    = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UIS        = game:GetService("UserInputService")
+local Workspace  = game:GetService("Workspace")
+
+repeat task.wait(0.1) until Players.LocalPlayer
+local LP = Players.LocalPlayer
+
+local function safe_parent()
+    if type(gethui) == "function" then
+        local ok, h = pcall(gethui)
+        if ok and h then return h, "gethui" end
+    end
+    local ok, c = pcall(function() return game:GetService("CoreGui") end)
+    if ok and c then return c, "CoreGui" end
+    return LP:WaitForChild("PlayerGui"), "PlayerGui"
+end
+
+local host, host_name = safe_parent()
+print("[universal] gui host =", host_name)
+
+-- پاک‌سازی اجرای قبلی
+local old = host:FindFirstChild("universal_cheat")
+if old then old:Destroy() end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "universal_cheat"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999
+gui.Parent = host
+
+local overlay = Instance.new("Frame")
+overlay.Size = UDim2.fromScale(1, 1)
+overlay.BackgroundTransparency = 1
+overlay.Parent = gui
+
+-- ////////// PANEL
+local panel = Instance.new("Frame")
+panel.Size = UDim2.fromOffset(160, 46)
+panel.Position = UDim2.new(0, 12, 0, 100)
+panel.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+panel.BackgroundTransparency = 0.1
+panel.BorderSizePixel = 0
+panel.Active = true
+panel.Draggable = true
+panel.Parent = gui
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Horizontal
+layout.Padding = UDim.new(0, 4)
+layout.Parent = panel
+
+local pad = Instance.new("UIPadding")
+pad.PaddingLeft = UDim.new(0, 6)
+pad.PaddingTop = UDim.new(0, 7)
+pad.Parent = panel
+
+local function mkbtn(text, w)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(w or 42, 32)
+    b.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+    b.Text = text
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.TextSize = 13
+    b.Font = Enum.Font.GothamBold
+    b.BorderSizePixel = 0
+    b.AutoButtonColor = false
+    b.Parent = panel
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local function paint(b, on)
+    b.BackgroundColor3 = on and Color3.fromRGB(0, 190, 120) or Color3.fromRGB(40, 40, 48)
+end
+
+local cfg = { inf_jump=false, esp=true, noclip=false, team_check=true, wall_check=true }
+
+local bInf = mkbtn("INF")
+local bEsp = mkbtn("ESP")
+local bNc  = mkbtn("NC")
+paint(bInf, cfg.inf_jump); paint(bEsp, cfg.esp); paint(bNc, cfg.noclip)
+
+-- ////////// INFINITE JUMP
+-- روی JumpRequest می‌نشینیم؛ هم تاچ موبایل هم Space کیبورد را می‌گیرد.
+
+UIS.JumpRequest:Connect(function()
+    if not cfg.inf_jump then return end
+    local ch = LP.Character
+    local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health > 0 then
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+-- فالبک: اگر بازی ChangeState را نپذیرفت، پرش را با تنظیم مجدد اجباری می‌کنیم
+task.spawn(function()
+    while task.wait(0.15) do
+        if not cfg.inf_jump then continue end
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum and hum:GetState() == Enum.HumanoidStateType.Freefall then
+            -- نگه‌داشتن JumpPower بالا باعث می‌شود پرش بعدی بی‌نهایت بالا برود
+            hum.JumpPower = 120
+            hum.UseJumpPower = true
+        end
+    end
+end)
+
+bInf.MouseButton1Click:Connect(function()
+    cfg.inf_jump = not cfg.inf_jump
+    paint(bInf, cfg.inf_jump)
+end)
+
+-- ////////// NOCLIP
+bNc.MouseButton1Click:Connect(function()
+    cfg.noclip = not cfg.noclip
+    paint(bNc, cfg.noclip)
+end)
+
+local function noclip_tick()
+    if not cfg.noclip then return end
+    local ch = LP.Character
+    if not ch then return end
+    for _, part in ipairs(ch:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+            part.CanCollide = false
+        end
+    end
+end
+
+-- ////////// ESP
+local boxes = {}
+
+local function ensure(p)
+    if boxes[p] then return end
+    local box = Instance.new("Frame")
+    box.BackgroundTransparency = 1
+    box.BorderSizePixel = 2
+    box.BorderColor3 = Color3.fromRGB(0, 255, 170)
+    box.Visible = false
+    box.Parent = overlay
+
+    local name = Instance.new("TextLabel")
+    name.BackgroundTransparency = 1
+    name.TextColor3 = Color3.fromRGB(0, 255, 170)
+    name.Font = Enum.Font.GothamBold
+    name.TextSize = 12
+    name.TextStrokeTransparency = 0.3
+    name.Size = UDim2.fromOffset(220, 16)
+    name.AnchorPoint = Vector2.new(0.5, 1)
+    name.Parent = overlay
+
+    local hpbg = Instance.new("Frame")
+    hpbg.BackgroundColor3 = Color3.new(0, 0, 0)
+    hpbg.BorderSizePixel = 0
+    hpbg.Parent = overlay
+
+    local hp = Instance.new("Frame")
+    hp.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+    hp.BorderSizePixel = 0
+    hp.Parent = hpbg
+
+    local dist = Instance.new("TextLabel")
+    dist.BackgroundTransparency = 1
+    dist.TextColor3 = Color3.fromRGB(0, 255, 170)
+    dist.Font = Enum.Font.Gotham
+    dist.TextSize = 11
+    dist.TextStrokeTransparency = 0.4
+    dist.Size = UDim2.fromOffset(80, 14)
+    dist.AnchorPoint = Vector2.new(0.5, 0)
+    dist.Parent = overlay
+
+    boxes[p] = { box=box, name=name, hpbg=hpbg, hp=hp, dist=dist }
+end
+
+local function hide(p)
+    local b = boxes[p]; if not b then return end
+    for _, v in pairs(b) do v.Visible = false end
+end
+
+local function is_teammate(p)
+    if not cfg.team_check then return false end
+    local ok, same = pcall(function()
+        return LP.Team ~= nil and LP.Team == p.Team
+    end)
+    return ok and same
+end
+
+local function w2s(pos)
+    local cam = Workspace.CurrentCamera
+    if not cam then return nil, false end
+    local v, on = cam:WorldToViewportPoint(pos)
+    return Vector2.new(v.X, v.Y), on and v.Z > 0
+end
+
+local function draw_esp()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == LP then hide(p); continue end
+        local ch = p.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+        local head = ch and ch:FindFirstChild("Head")
+        if not (hum and hum.Health > 0 and hrp and head) or is_teammate(p) then
+            hide(p); continue
+        end
+        ensure(p)
+        local top, on1 = w2s(head.Position + Vector3.new(0, 0.7, 0))
+        local bot, on2 = w2s(hrp.Position - Vector3.new(0, 2.8, 0))
+        if not (on1 and on2 and top and bot) then hide(p); continue end
+        local h = math.abs(bot.Y - top.Y)
+        local w = h * 0.5
+        local sx, sy = top.X - w / 2, top.Y
+        local d = (head.Position - Workspace.CurrentCamera.CFrame.Position).Magnitude
+        local B = boxes[p]
+
+        B.box.Visible = cfg.esp
+        B.box.Position = UDim2.fromOffset(sx, sy)
+        B.box.Size = UDim2.fromOffset(w, h)
+
+        B.name.Visible = cfg.esp
+        B.name.Text = string.format("%s [%d]", p.Name, math.floor(hum.Health))
+        B.name.Position = UDim2.fromOffset(top.X, sy - 2)
+
+        local frac = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+        B.hpbg.Visible = cfg.esp
+        B.hpbg.Position = UDim2.fromOffset(sx - 5, sy)
+        B.hpbg.Size = UDim2.fromOffset(3, h)
+        B.hp.Visible = cfg.esp
+        B.hp.Position = UDim2.fromOffset(0, h * (1 - frac))
+        B.hp.Size = UDim2.fromOffset(3, h * frac)
+
+        B.dist.Visible = cfg.esp
+        B.dist.Text = string.format("%dm", math.floor(d))
+        B.dist.Position = UDim2.fromOffset(top.X, sy + h + 2)
+    end
+end
+
+bEsp.MouseButton1Click:Connect(function()
+    cfg.esp = not cfg.esp
+    paint(bEsp, cfg.esp)
+end)
+
+-- ////////// LOOP
+RunService.RenderStepped:Connect(function()
+    local ok, err = pcall(function()
+        draw_esp()
+        noclip_tick()
+    end)
+    if not ok then warn("[universal] loop:", err) end
+end)
+
+print("[universal] loaded — INF · ESP · NC")
